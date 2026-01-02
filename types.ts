@@ -4,6 +4,8 @@ export interface SensorData {
   rms: number;
   vpeak: number;
   freq: number;
+  current: number;
+  power: number;
 }
 
 export interface CalibrationStats {
@@ -11,6 +13,8 @@ export interface CalibrationStats {
   vpeak: number;
   peakToPeak: number;
   freq: number;
+  current: number;
+  power: number;
 }
 
 export interface AppConfig {

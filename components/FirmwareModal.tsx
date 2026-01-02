@@ -9,93 +9,90 @@ interface FirmwareModalProps {
 const FirmwareModal: React.FC<FirmwareModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
-  const code = `/************ AC Voltage + Frequency Analyzer ************/
-// Optimized for VoltSense Pro GUI
-#define AC_PIN A0
+  const code = `/************************************************
+ * VoltSense Pro+ - AC Voltage & Current Monitor
+ * Voltage : A0 (scaled + biased at 2.5V)
+ * Current : A1 (SCT-013 + Burden Resistor)
+ ************************************************/
+
+#define VOLT_PIN A0
+#define CURR_PIN A1
 
 const float VREF = 5.0;
 const int ADC_RES = 1023;
 
-// 🔧 CALIBRATION: Adjust this to match your physical meter
-float CAL_FACTOR = 153.3;   // Example for 230V step-down
-
-// Global to capture peak from the RMS sampling loop
-float lastVPeak = 0;
+// -------- Calibration Settings --------
+float VOLT_CAL = 153.3;  // Adjust to match your multimeter
+float CURR_CAL = 1.00;   // Fine calibration factor
+const float BURDEN = 33.0;     // Ohms (Standard for SCT-013-000)
+const float CT_RATIO = 2000.0; // 100A / 0.05A turns ratio
 
 void setup() {
-  Serial.begin(115200); // 115200 is recommended for responsive UI
+  Serial.begin(9600); // GUI matches this by default
 }
 
 void loop() {
-  float vrms_sensor = measureRMS();
-  float vrms_actual = vrms_sensor * CAL_FACTOR;
-  float vpeak_actual = lastVPeak * CAL_FACTOR;
-  float freq = measureFrequency();
-
-  // Send JSON string to GUI
-  Serial.print("{\\"rms\\":");
-  Serial.print(vrms_actual, 1);
-  Serial.print(",\\"vpeak\\":");
-  Serial.print(vpeak_actual, 1);
-  Serial.print(",\\"freq\\":");
-  Serial.print(freq, 1);
-  Serial.println("}");
-
-  delay(200); // UI Refresh Interval
-}
-
-/************ RMS + PEAK MEASUREMENT ************/
-float measureRMS() {
   unsigned long t0 = millis();
-  float sum = 0, sumSq = 0;
-  int n = 0;
-  float maxRaw = 0;
+  float v_sum = 0, v_sumSq = 0;
+  float i_sum = 0, i_sumSq = 0;
+  int samples = 0;
 
-  while (millis() - t0 < 100) {   // Sample 5 cycles @50Hz
-    float rawADC = analogRead(AC_PIN);
-    float v = rawADC * VREF / ADC_RES;
-    
-    sum += v;
-    sumSq += v * v;
-    
-    // Track max for peak calculation
-    if (v > maxRaw) maxRaw = v;
-    
-    n++;
-  }
-
-  float mean = sum / n; // Auto DC Offset Removal
-  lastVPeak = (maxRaw - mean); // Peak voltage relative to bias
-  
-  return sqrt((sumSq / n) - (mean * mean));
-}
-
-/************ FREQUENCY MEASUREMENT ************/
-float measureFrequency() {
-  const int crossings = 10;   // More = more stable
+  // Frequency variables
   int count = 0;
   bool lastState = false;
   unsigned long tStart = 0, tEnd = 0;
 
-  // Use a timeout to prevent infinite loops if signal is missing
-  unsigned long timeout = millis();
+  // Sample for 100ms (~5-6 full cycles)
+  while (millis() - t0 < 100) {
+    float v_adc = analogRead(VOLT_PIN) * VREF / ADC_RES;
+    float i_adc = analogRead(CURR_PIN) * VREF / ADC_RES;
 
-  while (count < crossings && (millis() - timeout < 500)) {
-    float v = analogRead(AC_PIN) * VREF / ADC_RES;
-    bool state = (v > 2.5);   // Mid-level crossing (Assuming 2.5V bias)
+    v_sum += v_adc;
+    v_sumSq += v_adc * v_adc;
 
+    i_sum += i_adc;
+    i_sumSq += i_adc * i_adc;
+
+    // Zero-crossing for frequency
+    bool state = (v_adc > 2.5);
     if (state && !lastState) {
       if (count == 0) tStart = micros();
       count++;
-      if (count == crossings) tEnd = micros();
+      if (count == 10) tEnd = micros();
     }
     lastState = state;
+
+    samples++;
   }
 
-  if (count < crossings) return 0.0; // No signal detected
+  // Calculate Offset (Mean)
+  float v_mean = v_sum / samples;
+  float i_mean = i_sum / samples;
 
-  float period_us = (tEnd - tStart) / (float)(crossings - 1);
-  return 1000000.0 / period_us;
+  // Calculate RMS (Sensor Level)
+  float v_rms_s = sqrt((v_sumSq / samples) - (v_mean * v_mean));
+  float i_rms_s = sqrt((i_sumSq / samples) - (i_mean * i_mean));
+
+  // Convert to Real Values
+  float voltage = v_rms_s * VOLT_CAL;
+  float current = (i_rms_s / BURDEN) * CT_RATIO * CURR_CAL;
+  
+  // Frequency Calculation
+  float freq = 0;
+  if (count >= 10 && tEnd > tStart) {
+    freq = 1000000.0 * 9.0 / (tEnd - tStart);
+  }
+
+  // -------- Output JSON to GUI --------
+  Serial.print("{\\"v\\":");
+  Serial.print(voltage, 1);
+  Serial.print(",\\"i\\":");
+  Serial.print(current, 3);
+  Serial.print(",\\"f\\":");
+  Serial.print(freq, 1);
+  Serial.println("}");
+
+  delay(400); // Smooth UI updates
 }`;
 
   const copyToClipboard = () => {
@@ -109,7 +106,7 @@ float measureFrequency() {
         <div className="p-6 border-b border-slate-700 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-bold text-white">Arduino Firmware</h2>
-            <p className="text-xs text-slate-400">Integrated your logic with GUI enhancements</p>
+            <p className="text-xs text-slate-400">JSON-enabled sketch with Current & Frequency support</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
             <i className="fas fa-times text-xl"></i>
