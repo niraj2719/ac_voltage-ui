@@ -1,0 +1,7 @@
+{
+  "name": "VoltSense AC Monitor",
+  "description": "A high-precision AC voltage monitoring dashboard for Arduino Nano and LM358. Features real-time waveform visualization, safety guidelines, and an AI-powered calibration assistant.",
+  "requestFramePermissions": [
+    "serial"
+  ]
+}
